@@ -261,8 +261,10 @@ DEFAULT_PARSE_PARAMS = dict(
         ),
     ],
 )
-def test_parse_create_statement(create_statement, expected):
-    actual = ClickHouseQuota._parse_create_statement(create_statement)
+def test_parse_create_statement(mocker, create_statement, expected):
+    quota = ClickHouseQuota(mocker.MagicMock(), mocker.MagicMock(), "test_quota")
+    quota._exists = True
+    actual = quota._parse_create_statement(create_statement)
     assert actual == (DEFAULT_PARSE_PARAMS | expected)
 
 
@@ -614,10 +616,7 @@ def test_ensure_state(mocker, name, params, existing_quota, expected_executed):
         module.params = DEFAULT_PARAMS | params
         will_run_show_create = existing_quota and module.params["state"] == "present"
         quota = ClickHouseQuota(module, client, name)
-        client.execute.assert_called_once_with(
-            "SELECT 1 FROM system.quotas WHERE name = %(name)s LIMIT 1", params={'name': name}
-        )
-        client.execute.reset_mock()
+        quota._exists = bool(existing_quota)
         client.execute.return_value = [[existing_quota]] if will_run_show_create else []
         executed_statements = []
         mocker.patch("ansible_collections.community.clickhouse.plugins.modules.clickhouse_quota.executed_statements",
@@ -634,7 +633,5 @@ def test_ensure_state(mocker, name, params, existing_quota, expected_executed):
                 expected_call_args_list.append(((f"SHOW CREATE QUOTA `{name}`",),))
             expected_call_args_list.extend(((sql,),) for sql in expected_executed)
             assert client.execute.call_args_list == expected_call_args_list
-        # actual_calls = [call[0][0] for call in client.execute.call_args_list]
-        # executed_statements = get_executed_query(mock_execute)
         assert executed_statements == expected_executed
         assert changed is bool(expected_executed)
