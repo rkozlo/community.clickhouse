@@ -4,6 +4,48 @@ Ansible community.clickhouse collection changelog Release Notes
 
 .. contents:: Topics
 
+v2.3.0
+======
+
+Release Summary
+---------------
+
+This is a minor release of the ``community.clickhouse`` collection.
+This changelog contains all changes to the modules and plugins in this collection
+that have been made after the previous release.
+
+Minor Changes
+-------------
+
+- clickhouse_db - check if passed engine is supported before executing query. Module checks if passed name exists in system.database_engines (https://github.com/ansible-collections/community.clickhouse/pull/214).
+- clickhouse_db - validate passed identifiers. Close them in backticks to keep it consistent with other modules (https://github.com/ansible-collections/community.clickhouse/pull/214).
+- clickhouse_grants - pass cluster name in ON CLUSTER clause in backticks.
+- clickhouse_quota - inherit cluster documentation and spec option.
+- clickhouse_quota - pass quota and cluster name in backticks in queries.
+- clickhouse_role - close names in backticks. Now names for roles and cluster will be validated. Those containing ` or \ will be rejected. Other will eb safe passed without risk of breaking query.
+- clickhouse_user - module on success returns query_parameters with password used for query.
+- clickhouse_user - normalize generating query. Now identifiers like user names will be closed in backticks.
+- clickhouse_user - pass password to ClickHouse using query parameters. Prevent breaking query when containing soem special characters.
+
+Deprecated Features
+-------------------
+
+- clickhouse_db - deprecate pre 22.x handling code for comments (https://github.com/ansible-collections/community.clickhouse/issues/217).
+- clickhouse_role - list based settings and profiles are marked as deprecated and sheduled for removal in 3.0.0 (https://github.com/ansible-collections/community.clickhouse/issues/218).
+- clickhouse_user - list based settings and profiles are marked as deprecated and sheduled for removal in 3.0.0 (https://github.com/ansible-collections/community.clickhouse/issues/218).
+- mark ansible-core-2.17 as deprecated. Support will be removed in future.
+
+Bugfixes
+--------
+
+- clickhouse_quota - add missing on cluster for drop
+- clickhouse_role - fix cluster for drop role (https://github.com/ansible-collections/community.clickhouse/pull/215).
+
+New Modules
+-----------
+
+- clickhouse_settings_profile - Creates, removes or modify a ClickHouse settings profile using the clickhouse\-driver Client interface
+
 v2.2.0
 ======
 
