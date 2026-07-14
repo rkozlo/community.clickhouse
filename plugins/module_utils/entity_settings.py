@@ -6,6 +6,8 @@ from ansible.module_utils.basic import AnsibleModule
 
 from ansible_collections.community.clickhouse.plugins.module_utils.clickhouse import (
     execute_query,
+    to_bytes_data,
+    POSSIBLE_SIZE_PATTERN,
 )
 
 
@@ -163,8 +165,8 @@ class EntitySettings():
 
             # Convert numbers to strings (for all fields)
             for prop_name, prop_value in normalized_config.items():
-                if isinstance(prop_value, (int, float)):
-                    normalized_config[prop_name] = str(prop_value)
+                prop_value = self._normalize_value(prop_value)
+                normalized_config[prop_name] = prop_value
 
             # Writable uppercase and replace aliases
             if normalized_config.get('writability', ''):
@@ -177,3 +179,16 @@ class EntitySettings():
             normalized[setting_name] = normalized_config
 
         return normalized
+
+    def _normalize_value(self, value):
+        if value is None:
+            return None
+        if POSSIBLE_SIZE_PATTERN.match(str(value)):
+            return str(self._normalize_settings_value_bytes(value))
+        return str(value)
+
+    def _normalize_settings_value_bytes(self, value):
+        try:
+            return to_bytes_data(value)
+        except Exception:
+            self.module.fail_json(msg=f"Unexpected error. Failed normalizing bytes format {value}")

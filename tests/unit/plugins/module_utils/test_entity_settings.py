@@ -264,6 +264,48 @@ def test_normalizing_passed_settings_quota_floats(user_ent):
     }
 
 
+def test_normalizing_passed_1000_based_data(user_ent):
+    result = user_ent._normalize_settings(
+        {
+            'max_memory_usage': {
+                'value': "1G",
+                'min': "200M",
+                'max': "2G",
+                'writability': 'CONST'
+            }
+        }
+    )
+    assert result == {
+        'max_memory_usage': {
+            'value': '1000000000',
+            'min': '200000000',
+            'max': '2000000000',
+            'writability': 'CONST'
+        }
+    }
+
+
+def test_normalizing_passed_1024_based_data(user_ent):
+    result = user_ent._normalize_settings(
+        {
+            'max_memory_usage': {
+                'value': "1Gi",
+                'min': "200Mi",
+                'max': "2Gi",
+                'writability': 'CONST'
+            }
+        }
+    )
+    assert result == {
+        'max_memory_usage': {
+            'value': '1073741824',
+            'min': '209715200',
+            'max': '2147483648',
+            'writability': 'CONST'
+        }
+    }
+
+
 def test_returning_entity_no_changes(user_ent):
     result = user_ent.compare_and_build_clause(
         {

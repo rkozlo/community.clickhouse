@@ -38,23 +38,23 @@ def test_setup_object(settings_profile):
         (None, None, None, 'CREATE SETTINGS PROFILE `test_profile`'),
         (None, ['web'], None, 'CREATE SETTINGS PROFILE `test_profile` SETTINGS INHERIT `web`'),
         (None, ['web', 'app'], None, 'CREATE SETTINGS PROFILE `test_profile` SETTINGS INHERIT `web`, INHERIT `app`'),
-        ({'max_memory': {'value': '1G'}}, None, None, 'CREATE SETTINGS PROFILE `test_profile` SETTINGS max_memory=\'1G\''),
+        ({'max_memory': {'value': '1G'}}, None, None, 'CREATE SETTINGS PROFILE `test_profile` SETTINGS max_memory=\'1000000000\''),
         (
             {'max_memory': {'value': '1G'}, 'max_threads': {'value': '1'}},
             None, None,
-            'CREATE SETTINGS PROFILE `test_profile` SETTINGS max_memory=\'1G\', max_threads=\'1\''),
+            'CREATE SETTINGS PROFILE `test_profile` SETTINGS max_memory=\'1000000000\', max_threads=\'1\''),
         (
             {'max_memory': {'value': '1G'}, 'max_threads': {'value': '1'}},
             ['web'], None,
-            'CREATE SETTINGS PROFILE `test_profile` SETTINGS INHERIT `web`, max_memory=\'1G\', max_threads=\'1\''),
+            'CREATE SETTINGS PROFILE `test_profile` SETTINGS INHERIT `web`, max_memory=\'1000000000\', max_threads=\'1\''),
         (
             {'max_memory': {'value': '1G'}, 'max_threads': {'value': '1'}},
             ['web', 'app'], None,
-            'CREATE SETTINGS PROFILE `test_profile` SETTINGS INHERIT `web`, INHERIT `app`, max_memory=\'1G\', max_threads=\'1\''),
+            'CREATE SETTINGS PROFILE `test_profile` SETTINGS INHERIT `web`, INHERIT `app`, max_memory=\'1000000000\', max_threads=\'1\''),
         (
             {'max_memory': {'value': '1G'}, 'max_threads': {'value': '1'}},
             ['web', 'app'], 'cluster',
-            'CREATE SETTINGS PROFILE `test_profile` ON CLUSTER `cluster` SETTINGS INHERIT `web`, INHERIT `app`, max_memory=\'1G\', max_threads=\'1\''),
+            'CREATE SETTINGS PROFILE `test_profile` ON CLUSTER `cluster` SETTINGS INHERIT `web`, INHERIT `app`, max_memory=\'1000000000\', max_threads=\'1\''),
     ]
 )
 def test_create_profile(mock_execute, settings_profile, settings, profiles, cluster, expected):
@@ -95,7 +95,7 @@ def test_alter_profile_changed_inherit_and_settings(settings_profile, mock_execu
     actual_query = get_executed_query(mock_execute)
     assert changed is True
     assert mock_execute.call_count == 1
-    assert actual_query == "ALTER SETTINGS PROFILE `test_profile` SETTINGS INHERIT `web`, max_memory_usage='10G'"
+    assert actual_query == "ALTER SETTINGS PROFILE `test_profile` SETTINGS INHERIT `web`, max_memory_usage='10000000000'"
 
 
 def test_alter_profile_changed_many_inherit_and_settings_with_cluster(settings_profile, mock_execute):
@@ -106,7 +106,7 @@ def test_alter_profile_changed_many_inherit_and_settings_with_cluster(settings_p
     assert mock_execute.call_count == 1
     assert actual_query == (
         "ALTER SETTINGS PROFILE `test_profile` ON CLUSTER `cluster` "
-        "SETTINGS INHERIT `web`, INHERIT `app`, max_memory_usage='10G', max_threads='1'"
+        "SETTINGS INHERIT `web`, INHERIT `app`, max_memory_usage='10000000000', max_threads='1'"
     )
 
 

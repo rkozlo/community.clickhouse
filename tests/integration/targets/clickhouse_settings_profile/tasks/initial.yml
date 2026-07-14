@@ -296,7 +296,7 @@
   ansible.builtin.assert:
     that:
       - result.changed == true
-      - result.executed_statements == ["CREATE SETTINGS PROFILE `test_profile` SETTINGS max_threads='1', enable_positional_arguments='0', max_memory_usage='10G'"]
+      - result.executed_statements == ["CREATE SETTINGS PROFILE `test_profile` SETTINGS max_threads='1', enable_positional_arguments='0', max_memory_usage='10000000000'"]
 
 - name: Create setting profile with settings - idempotency
   community.clickhouse.clickhouse_settings_profile:
@@ -309,6 +309,11 @@
       max_memory_usage:
         value: '10G'
   register: result
+
+- name: Check the return values
+  ansible.builtin.assert:
+    that:
+      - result.changed == false
 
 - name: Drop settings profile
   community.clickhouse.clickhouse_settings_profile:

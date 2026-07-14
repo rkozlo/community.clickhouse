@@ -197,7 +197,7 @@ def test_create_user_using_dict_settings(user, mock_execute):
         'listed_only', None, 'listed_only',
         None, [])
     actual_query = get_executed_query(mock_execute)
-    assert actual_query == "CREATE USER `alice` SETTINGS max_memory_usage='10G'"
+    assert actual_query == "CREATE USER `alice` SETTINGS max_memory_usage='10000000000'"
 
 
 def test_create_user_using_profiles_prameter(user, mock_execute):
@@ -217,7 +217,7 @@ def test_create_user_using_profiles_parameter_and_settings(user, mock_execute):
         'listed_only', None, 'listed_only',
         None, ['app', 'web'])
     actual_query = get_executed_query(mock_execute)
-    assert actual_query == "CREATE USER `alice` SETTINGS PROFILE 'app', PROFILE 'web', max_memory_usage='10G'"
+    assert actual_query == "CREATE USER `alice` SETTINGS PROFILE 'app', PROFILE 'web', max_memory_usage='10000000000'"
 
 
 def test_create_user_using_profiles_parameter_and_settings_complex(user, mock_execute):
@@ -235,7 +235,7 @@ def test_create_user_using_profiles_parameter_and_settings_complex(user, mock_ex
         "CREATE USER `alice` SETTINGS PROFILE 'app', "
         "PROFILE 'web', PROFILE 'test_profile', "
         "PROFILE 'web2', "
-        "max_memory_usage='10G' MIN '1G' MAX '100G' CONST, "
+        "max_memory_usage='10000000000' MIN '1000000000' MAX '100000000000' CONST, "
         "allow_experimental_variant_type='1' WRITABLE")
 
 
@@ -274,7 +274,7 @@ def test_alter_user_setting_added(user_exist, mock_execute):
     assert changed is True
     assert actual_query == (
         "ALTER USER `alice` SETTINGS "
-        "max_memory_usage='10G' MIN '1G' MAX '100G' CONST")
+        "max_memory_usage='10000000000' MIN '1000000000' MAX '100000000000' CONST")
 
 
 def test_alter_user_old_setting_added(user_exist, mock_execute):

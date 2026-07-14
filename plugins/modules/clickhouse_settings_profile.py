@@ -23,11 +23,8 @@ attributes:
     description: Supports check_mode.
     support: full
   idempotent:
-    description:
-      - Module can't determine what data type is certain setting.
-        So when passing setting that will be resolved by server to another value module will be not idempotent.
-        For example passing 1G as value server will store this as 100000000.
-    support: partial
+    description: When run twice in a row outside check mode, with the same arguments, the second invocation indicates no change.
+    support: full
 
 author:
   - Rafal Kozlowski (@rkozlo)
