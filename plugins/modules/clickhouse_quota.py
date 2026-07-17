@@ -302,13 +302,16 @@ class ClickHouseQuota:
         self.client = client
         self.name = name
 
-        self.exists = self._check_exists()
+        self._exists = None
 
-    def _check_exists(self):
-        query = "SELECT 1 FROM system.quotas WHERE name = %(name)s LIMIT 1"
-        query_parameters = {'params': {'name': self.name}}
-        result = execute_query(self.module, self.client, query, query_parameters)
-        return bool(result)
+    @property
+    def exists(self):
+        if self._exists is None:
+            query = "SELECT 1 FROM system.quotas WHERE name = %(name)s LIMIT 1"
+            query_parameters = {'params': {'name': self.name}}
+            result = execute_query(self.module, self.client, query, query_parameters)
+            self._exists = bool(result)
+        return self._exists
 
     def _get_create_statement(self):
         """Get current definition using SHOW CREATE X"""
@@ -359,7 +362,7 @@ class ClickHouseQuota:
             return False
 
         self._do("CREATE")
-        self.exists = True
+        self._exists = True
         return True
 
     def alter(self):
@@ -385,7 +388,7 @@ class ClickHouseQuota:
         if not self.module.check_mode:
             execute_query(self.module, self.client, query)
 
-        self.exists = False
+        self._exists = False
         return True
 
     def ensure_state(self):
