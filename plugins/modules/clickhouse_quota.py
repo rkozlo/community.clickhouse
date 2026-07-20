@@ -29,6 +29,7 @@ version_added: '1.1.0'
 
 author:
   - John Garland (@johnnyg)
+  - Rafal Kozlowski (@rkozlo)
 
 extends_documentation_fragment:
   - community.clickhouse.client_inst_opts
@@ -206,32 +207,6 @@ from ansible_collections.community.clickhouse.plugins.module_utils.clickhouse im
     cluster_argument_spec,
 )
 
-
-_POSSIBLY_ESCAPED_NAME_REGEX = r"(?:`(?:[^`]+)`)|(?:\w+)"
-_KEYED_BY_VALUES = [
-    "user_name",
-    "ip_address",
-    "client_key, ?user_name",
-    "client_key, ?ip_address",
-    "client_key",  # needs to be after so it doesn't match first
-]
-_CREATE_QUOTA_REGEX = re.compile(
-    rf"^CREATE QUOTA (?P<name>{_POSSIBLY_ESCAPED_NAME_REGEX})"
-    rf"(?: ON CLUSTER (?P<cluster>{_POSSIBLY_ESCAPED_NAME_REGEX}))?"
-    rf"(?: KEYED BY (?P<keyed_by>{'|'.join(_KEYED_BY_VALUES)}))?"
-)
-
-_NUMBER_REGEX = r"(?:-?\d+\.?\d*)"
-_INTERVAL_UNITS = [
-    "second",
-    "minute",
-    "hour",
-    "day",
-    "week",
-    "month",
-    "quarter",
-    "year",
-]
 _MAX_LIMIT_TYPES = [
     "queries",
     "query_selects",
@@ -245,22 +220,8 @@ _MAX_LIMIT_TYPES = [
     "execution_time",
     "failed_sequential_authentications",
 ]
-_LIMIT_TYPES = [
-    rf"(?:MAX(?:,? (?:{'|'.join(_MAX_LIMIT_TYPES)}) = {_NUMBER_REGEX})+)",
-    "NO LIMITS",
-    "TRACKING ONLY",
-]
-_LIMITS_REGEX = re.compile(
-    r"FOR (?:(?P<randomized>RANDOMIZED) )?"
-    rf"INTERVAL (?P<interval_number>{_NUMBER_REGEX}) (?P<interval_unit>{'|'.join(_INTERVAL_UNITS)}) "
-    rf"(?P<limit_type>{'|'.join(_LIMIT_TYPES)})"
-)
 
-_ROLES_REGEX = rf"(?:(?:{_POSSIBLY_ESCAPED_NAME_REGEX})(?:, )?)+"
-_APPLY_TO_TYPES = [rf"(?:{_ROLES_REGEX})", "ALL", rf"ALL EXCEPT (?:{_ROLES_REGEX})"]
-_APPLY_TO_REGEX = re.compile(rf" TO (?P<apply_to>{'|'.join(_APPLY_TO_TYPES)})$")
-_USER_OR_ROLE_REGEX = re.compile(rf"(?P<name>{_POSSIBLY_ESCAPED_NAME_REGEX})(?:, ?)?")
-
+_LIMITS_INTERVAL = re.compile(r'^(?P<number>[\d]+) (?P<unit>second|minute|hour|day|week|month|quarter|year)$')
 
 _DEFAULT_LIMIT_PARAMS = {
     "randomized_start": False,
@@ -301,36 +262,129 @@ class ClickHouseQuota:
         self.module = module
         self.client = client
         self.name = name
+        self.keyed_by = None
+        self.durations = None
+        self.apply_to_all = None
+        self.apply_to_except = None
 
         self._exists = None
+        self._quota_limits = []
+        self._loaded = False
 
     @property
     def exists(self):
         if self._exists is None:
-            query = "SELECT 1 FROM system.quotas WHERE name = %(name)s LIMIT 1"
+            query = "SELECT keys, durations, apply_to_all, apply_to_list, apply_to_except FROM system.quotas WHERE name = %(name)s LIMIT 1"
             query_parameters = {'params': {'name': self.name}}
             result = execute_query(self.module, self.client, query, query_parameters)
-            self._exists = bool(result)
+            if bool(result):
+                self._exists = True
+                self.keyed_by, self.durations, self.apply_to_all, self.apply_to_list, self.apply_to_except = result[0]
+            else:
+                self._exists = False
+            # We can simply skip later checks here.
+            if self.durations == [] and self._exists:
+                self._loaded = True
         return self._exists
 
-    def _get_create_statement(self):
-        """Get current definition using SHOW CREATE X"""
-        if not self.exists:
-            return None
+    @property
+    def quota_limits(self):
+        if not self._loaded:
+            self._load()
+        return self._quota_limits
 
-        query = f"SHOW CREATE QUOTA `{self.name}`"
-        result = execute_query(self.module, self.client, query)
-        if result:
-            # SHOW CREATE X returns single row with CREATE statement
-            return result[0][0]
-        return None
+    def _load(self):
+        columns = ['duration', 'is_randomized_interval'] + [f'max_{t}' for t in _MAX_LIMIT_TYPES]
+        query = f"""SELECT
+                        {', '.join(columns)}
+                    FROM system.quota_limits
+                    WHERE quota_name = %(name)s ORDER BY `duration`"""
+        query_parameters = {'params': {'name': self.name}}
+        result = execute_query(self.module, self.client, query, query_parameters)
+
+        for entry in result:
+            (duration, is_randomized_interval, *max_values) = entry
+            max_dict = dict(zip(_MAX_LIMIT_TYPES, max_values))
+            limit = {
+                'max': max_dict,
+                'randomized_start': bool(is_randomized_interval),
+                'interval': duration,
+            }
+            if all(v is None for v in max_dict.values()):
+                limit['tracking_only'] = True
+            self._quota_limits.append(limit)
+        self._loaded = True
+
+    def _build_current_vals_to_compare(self):
+        '''Method to replace old parse over show create statement.
+        In future probably should be changed if further logic will change.
+        '''
+        result = {"limits": []}
+        if self.quota_limits:
+            for entry in self.quota_limits:
+                rewritten_limit = {}
+                # interval in system.quota_limits is seconds -> represent as "<n> second"
+                interval = entry.get("interval")
+                rewritten_limit["interval"] = f"{int(interval)} second"
+
+                rewritten_limit["randomized_start"] = bool(entry.get("randomized_start", False))
+
+                # copy max values, keeping only non-None entries
+                max_dict = entry.get("max") or {}
+                filtered_max = {k: v for k, v in max_dict.items() if v is not None}
+                if filtered_max:
+                    rewritten_limit["max"] = filtered_max
+                else:
+                    rewritten_limit["max"] = {}
+                    rewritten_limit["tracking_only"] = True
+
+                rewritten_limit["no_limits"] = None
+
+                result["limits"].append(rewritten_limit)
+
+        # keyed_by may be array or string
+        if self.keyed_by:
+            if isinstance(self.keyed_by, (list, tuple)):
+                result["keyed_by"] = ",".join(self.keyed_by)
+            else:
+                result["keyed_by"] = str(self.keyed_by)
+
+        # apply_to handling: map system columns to apply_to_mode + apply_to list
+        if self.apply_to_all and self.apply_to_except:
+            result["apply_to_mode"] = "all_except_listed"
+            result["apply_to"] = list(self.apply_to_except or [])
+        elif self.apply_to_all:
+            result["apply_to_mode"] = "all"
+        elif self.apply_to_list:
+            result["apply_to_mode"] = "listed_only"
+            result["apply_to"] = list(self.apply_to_list or [])
+
+        # keep same ordering as normalize expects
+        result["limits"].sort(key=itemgetter("interval"))
+        return result
+
+    def _normalize_interval(self, input):
+        '''Normalize passed interval into seconds.'''
+        _INTERVAL_CONV = {
+            "second": 1,
+            "minute": 60,
+            "hour": 3600,
+            "day": 86400,
+            "week": 604800,
+            "month": 2629746,
+            "quarter": 7889238,
+            "year": 31556952,
+        }
+        match = _LIMITS_INTERVAL.match(input)
+        if not match:
+            self.module.fail_json(msg=f"Unexpected interval input {input}.")
+        return int(match.group('number')) * int(_INTERVAL_CONV[match.group('unit')])
 
     def _needs_altering(self):
         """Check if we need to alter to reach desired"""
-        create_statement = self._get_create_statement()
-        if create_statement is None:
+        if not self.exists:
             return True
-        current_params = self._normalize(self._parse_create_statement(create_statement))
+        current_params = self._normalize(self._build_current_vals_to_compare())
         desired_params = self._normalize(self.module.params)
 
         # For debugging version compatibility issues
@@ -406,60 +460,7 @@ class ClickHouseQuota:
 
         return changed
 
-    @staticmethod
-    def _parse_create_statement(create_statement):
-        match = _CREATE_QUOTA_REGEX.match(create_statement)
-        if not match:
-            raise ValueError(f"Could not parse '{create_statement}'")
-        params = {} | match.groupdict()
-        params.pop("name")
-        cluster = params["cluster"]
-        if cluster is not None:
-            params["cluster"] = cluster.strip("`")
-        next_search_pos = match.end()
-        limits = []
-        for match in _LIMITS_REGEX.finditer(create_statement, pos=next_search_pos):
-            limit = {}
-            groups = match.groupdict()
-            limit["randomized_start"] = groups["randomized"] == "RANDOMIZED"
-            limit["interval"] = f"{groups['interval_number']} {groups['interval_unit']}"
-            limit_type = groups["limit_type"]
-            if limit_type == "NO LIMITS":
-                limit["no_limits"] = True
-            elif limit_type == "TRACKING ONLY":
-                limit["tracking_only"] = True
-            elif limit_type.startswith("MAX "):
-                max_limits = {}
-                for max_limit in limit_type[len("MAX ") :].split(", "):
-                    key, _part, value = max_limit.partition(" = ")
-                    type_fn = float if key == "execution_time" else int
-                    max_limits[key] = type_fn(value)
-                limit["max"] = max_limits
-            else:
-                raise ValueError(f"Invalid limit type '{limit_type}'")
-            limits.append(limit)
-            next_search_pos = match.end()
-        params["limits"] = limits
-        match = _APPLY_TO_REGEX.match(create_statement, pos=next_search_pos)
-        if match:
-            groups = match.groupdict()
-            apply_to = groups["apply_to"]
-            if apply_to == "ALL":
-                params["apply_to_mode"] = "all"
-                apply_to = ""
-            elif apply_to.startswith("ALL EXCEPT "):
-                params["apply_to_mode"] = "all_except_listed"
-                apply_to = apply_to[len("ALL EXCEPT ") :]
-            else:
-                params["apply_to_mode"] = "listed_only"
-            params["apply_to"] = [
-                match.groupdict()["name"].strip("`")
-                for match in _USER_OR_ROLE_REGEX.finditer(apply_to)
-            ]
-        return params
-
-    @staticmethod
-    def _normalize(params):
+    def _normalize(self, params):
         normalized = _DEFAULT_PARAMS.copy()
         for key in normalized.keys() & params.keys():
             value = params[key]
@@ -471,6 +472,8 @@ class ClickHouseQuota:
                         for limit_key in normalized_limit.keys() & limit_params.keys():
                             limit_value = limit_params[limit_key]
                             if limit_value is not None:
+                                if limit_key == 'interval':
+                                    limit_value = self._normalize_interval(limit_value)
                                 normalized_limit[limit_key] = limit_value
                         normalized_limits.append(normalized_limit)
                     normalized[key] = normalized_limits
@@ -514,7 +517,8 @@ class ClickHouseQuota:
             sql_clause = ["FOR"]
             if limit.get("randomized_start", False):
                 sql_clause.append("RANDOMIZED")
-            sql_clause.append(f"INTERVAL {limit['interval']}")
+            normalized_interval = self._normalize_interval(limit['interval'])
+            sql_clause.append(f"INTERVAL {normalized_interval} second")
             max_limits = {
                 key: value
                 for key, value in (limit.get("max") or {}).items()

@@ -3,269 +3,129 @@ from __future__ import absolute_import, division, print_function
 __metaclass__ = type
 import pytest
 from ansible_collections.community.clickhouse.plugins.modules.clickhouse_quota import (
-    _APPLY_TO_REGEX,
-    _CREATE_QUOTA_REGEX,
-    _LIMITS_REGEX,
     ClickHouseQuota,
-)
-from ansible_collections.community.clickhouse.plugins.modules.clickhouse_quota import (
     _DEFAULT_PARAMS as DEFAULT_NORMALIZE_PARAMS,
 )
 
 
-@pytest.mark.parametrize(
-    argnames="search",
-    argvalues=[
-        "",
-        "CREATE NOT_QUOTA foo",
-    ],
-)
-def test_negative_create_quota_regex(search):
-    match = _CREATE_QUOTA_REGEX.match(search)
-    assert match is None
+@pytest.fixture
+def quota(mocker):
+    mock_module = mocker.MagicMock()
+    mock_module.check_mode = False
+    mock_client = mocker.MagicMock()
+
+    return ClickHouseQuota(module=mock_module, client=mock_client, name="test_quota")
 
 
-DEFAULT_CREATE_QUOTA_GROUPS = dict(
-    name=None,
-    cluster=None,
-    keyed_by=None,
-)
+def test_setup_object(quota):
+    assert quota.name == 'test_quota'
+    assert quota._exists is None
 
 
-@pytest.mark.parametrize(
-    argnames="search,expected",
-    argvalues=[
-        ("CREATE QUOTA test_quota", dict(name="test_quota")),
-        ("CREATE QUOTA `test_quota`", dict(name="`test_quota`")),
-        ("CREATE QUOTA `test quota`", dict(name="`test quota`")),
-        ("CREATE QUOTA `tést_quota`", dict(name="`tést_quota`")),
-        ("CREATE QUOTA `tést quota`", dict(name="`tést quota`")),
-        (
-            "CREATE QUOTA test_quota ON CLUSTER test_cluster",
-            dict(name="test_quota", cluster="test_cluster"),
-        ),
-        (
-            "CREATE QUOTA test_quota ON CLUSTER `test cluster`",
-            dict(name="test_quota", cluster="`test cluster`"),
-        ),
-        (
-            "CREATE QUOTA test_quota ON CLUSTER `tést_cluster`",
-            dict(name="test_quota", cluster="`tést_cluster`"),
-        ),
-        (
-            "CREATE QUOTA test_quota ON CLUSTER `tést cluster`",
-            dict(name="test_quota", cluster="`tést cluster`"),
-        ),
-        (
-            "CREATE QUOTA `tést quota` ON CLUSTER `tést cluster`",
-            dict(name="`tést quota`", cluster="`tést cluster`"),
-        ),
-        (
-            "CREATE QUOTA test_quota KEYED BY user_name",
-            dict(name="test_quota", keyed_by="user_name"),
-        ),
-        ("CREATE QUOTA test_quota KEYED BY non_existent_key", dict(name="test_quota")),
-        (
-            "CREATE QUOTA `tést quota` KEYED BY ip_address",
-            dict(name="`tést quota`", keyed_by="ip_address"),
-        ),
-        (
-            "CREATE QUOTA `tést quota` ON CLUSTER `tést cluster` KEYED BY client_key,ip_address",
-            dict(
-                name="`tést quota`",
-                cluster="`tést cluster`",
-                keyed_by="client_key,ip_address",
-            ),
-        ),
-    ],
-)
-def test_create_quota_regex(search, expected):
-    match = _CREATE_QUOTA_REGEX.match(search)
-    assert match is not None
-    actual = match.groupdict()
-    assert actual == (DEFAULT_CREATE_QUOTA_GROUPS | expected)
+def test_not_exists_loading(quota, mocker):
+    mocker.patch(
+        "ansible_collections.community.clickhouse.plugins.modules.clickhouse_quota.execute_query",
+        return_value=[])
+    assert quota.exists is False
+    assert quota._loaded is False
+    assert quota.keyed_by is None
+    assert quota.durations is None
+    assert quota.apply_to_all is None
+    assert quota.apply_to_except is None
+    assert quota._quota_limits == []
 
 
-DEFAULT_LIMITS_GROUPS = dict(
-    randomized=None,
-    interval_number=None,
-    interval_unit=None,
-    limit_type=None,
-)
+def test_exists_loading(quota, mocker):
+    mocker.patch(
+        "ansible_collections.community.clickhouse.plugins.modules.clickhouse_quota.execute_query",
+        return_value=[(['user_name'], [3600], 0, ['test'], ['except'])])
+    assert quota.exists is True
+    assert quota._loaded is False
+    assert quota.keyed_by == ['user_name']
+    assert quota.durations == [3600]
+    assert quota.apply_to_all == 0
+    assert quota.apply_to_list == ['test']
+    assert quota.apply_to_except == ['except']
+    assert quota._quota_limits == []
 
 
-@pytest.mark.parametrize(
-    argnames="search,expected",
-    argvalues=[
-        (
-            "FOR INTERVAL 5 minute NO LIMITS",
-            {
-                "interval_number": "5",
-                "interval_unit": "minute",
-                "limit_type": "NO LIMITS",
-            },
-        ),
-        (
-            "FOR RANDOMIZED INTERVAL 0.25 year TRACKING ONLY",
-            {
-                "randomized": "RANDOMIZED",
-                "interval_number": "0.25",
-                "interval_unit": "year",
-                "limit_type": "TRACKING ONLY",
-            },
-        ),
-        (
-            "FOR INTERVAL 1 day MAX queries = 100",
-            {
-                "interval_number": "1",
-                "interval_unit": "day",
-                "limit_type": "MAX queries = 100",
-            },
-        ),
-        (
-            "FOR INTERVAL 1 day MAX query_selects = 80, query_inserts = 20",
-            {
-                "interval_number": "1",
-                "interval_unit": "day",
-                "limit_type": "MAX query_selects = 80, query_inserts = 20",
-            },
-        ),
-        (
-            "FOR RANDOMIZED INTERVAL 1000 second MAX execution_time = 100.5, failed_sequential_authentications = 10",
-            {
-                "randomized": "RANDOMIZED",
-                "interval_number": "1000",
-                "interval_unit": "second",
-                "limit_type": "MAX execution_time = 100.5, failed_sequential_authentications = 10",
-            },
-        ),
-    ],
-)
-def test_limits_regex(search, expected):
-    match = _LIMITS_REGEX.match(search)
-    assert match is not None
-    actual = match.groupdict()
-    assert actual == (DEFAULT_LIMITS_GROUPS | expected)
+def test_properties_loading_empty_limit(quota, mocker):
+    mocker.patch(
+        "ansible_collections.community.clickhouse.plugins.modules.clickhouse_quota.execute_query",
+        return_value=[(['user_name'], [], 0, ['test'], ['except'])])
+    assert quota.exists is True
+    assert quota._loaded is True
+
+
+def test_properties_loading(quota, mocker):
+    mocker.patch(
+        "ansible_collections.community.clickhouse.plugins.modules.clickhouse_quota.execute_query",
+        return_value=[(3600, 0, None, None, None, None, None, None, None, None, None, None, None)])
+    quota._load()
+    assert quota._loaded is True
+    assert quota.quota_limits == [{
+        "max": {
+            "queries": None,
+            "query_selects": None,
+            "query_inserts": None,
+            "errors": None,
+            "result_rows": None,
+            "result_bytes": None,
+            "read_rows": None,
+            "read_bytes": None,
+            "written_bytes": None,
+            "execution_time": None,
+            "failed_sequential_authentications": None,
+        },
+        "randomized_start": False,
+        "interval": 3600,
+        "tracking_only": True,
+    }]
+
+
+def test_properties_loading_check_quota_limits(quota, mocker):
+    mocker.patch(
+        "ansible_collections.community.clickhouse.plugins.modules.clickhouse_quota.execute_query",
+        return_value=[(3600, 0, 1000, 1001, 1002, 1003, 1004, 1005, 1006, 1007, 1008, 1009.0, 1010)]
+    )
+    assert quota.quota_limits == [{
+        "max": {
+            "queries": 1000,
+            "query_selects": 1001,
+            "query_inserts": 1002,
+            "errors": 1003,
+            "result_rows": 1004,
+            "result_bytes": 1005,
+            "read_rows": 1006,
+            "read_bytes": 1007,
+            "written_bytes": 1008,
+            "execution_time": 1009.0,
+            "failed_sequential_authentications": 1010,
+        },
+        "randomized_start": False,
+        "interval": 3600,
+    }]
 
 
 @pytest.mark.parametrize(
-    argnames="search,expected",
-    argvalues=[
-        (" TO DEFAULT", dict(apply_to="DEFAULT")),
-        (
-            " TO CURRENT_USER, test_user, `tést user`",
-            dict(apply_to="CURRENT_USER, test_user, `tést user`"),
-        ),
-        (
-            " TO DEFAULT, `tést user`, CURRENT_USER",
-            dict(apply_to="DEFAULT, `tést user`, CURRENT_USER"),
-        ),
-        (" TO ALL", dict(apply_to="ALL")),
-        (" TO ALL EXCEPT CURRENT_USER", dict(apply_to="ALL EXCEPT CURRENT_USER")),
-        (
-            " TO ALL EXCEPT CURRENT_USER, test_user, `tést user`",
-            dict(apply_to="ALL EXCEPT CURRENT_USER, test_user, `tést user`"),
-        ),
-    ],
+    'input,expected',
+    [
+        ("1 second", 1),
+        ("2 second", 2),
+        ("1 minute", 60),
+        ("2 minute", 120),
+        ("2 hour", 7200),
+        ("2 day", 172800),
+        ("2 week", 1209600),
+        ("2 month", 5259492),
+        ("2 quarter", 15778476),
+        ("2 year", 63113904),
+    ]
 )
-def test_apply_to_regex(search, expected):
-    match = _APPLY_TO_REGEX.match(search)
-    assert match is not None
-    actual = match.groupdict()
-    assert actual == expected
-
-
-DEFAULT_PARSE_PARAMS = dict(
-    cluster=None,
-    keyed_by=None,
-    limits=[],
-)
-
-
-@pytest.mark.parametrize(
-    argnames="create_statement,expected",
-    argvalues=[
-        (
-            "CREATE QUOTA test_quota FOR INTERVAL 1 hour TRACKING ONLY TO DEFAULT, `tést user`, CURRENT_USER",
-            {
-                "limits": [
-                    {
-                        "randomized_start": False,
-                        "interval": "1 hour",
-                        "tracking_only": True,
-                    },
-                ],
-                "apply_to": ["DEFAULT", "tést user", "CURRENT_USER"],
-                "apply_to_mode": "listed_only",
-            },
-        ),
-        (
-            "CREATE QUOTA test_quota FOR RANDOMIZED INTERVAL 1 hour NO LIMITS TO ALL",
-            {
-                "limits": [
-                    {
-                        "randomized_start": True,
-                        "interval": "1 hour",
-                        "no_limits": True,
-                    },
-                ],
-                "apply_to": [],
-                "apply_to_mode": "all",
-            },
-        ),
-        (
-            "CREATE QUOTA test_quota ON CLUSTER `tést cluster` KEYED BY client_key,user_name"
-            " FOR RANDOMIZED INTERVAL 1 minute MAX queries = 100, query_selects = 80, query_inserts = 10,"
-            " FOR INTERVAL 1 day MAX execution_time = 3000.5, read_rows = 1024"
-            " TO ALL EXCEPT `tést user`",
-            {
-                "cluster": "tést cluster",
-                "keyed_by": "client_key,user_name",
-                "limits": [
-                    {
-                        "randomized_start": True,
-                        "interval": "1 minute",
-                        "max": {
-                            "queries": 100,
-                            "query_selects": 80,
-                            "query_inserts": 10,
-                        },
-                    },
-                    {
-                        "randomized_start": False,
-                        "interval": "1 day",
-                        "max": {
-                            "execution_time": 3000.5,
-                            "read_rows": 1024,
-                        },
-                    },
-                ],
-                "apply_to": ["tést user"],
-                "apply_to_mode": "all_except_listed",
-            },
-        ),
-        (
-            "CREATE QUOTA tracking_only KEYED BY user_name FOR INTERVAL 15 minute TRACKING ONLY TO ALL",
-            {
-                "keyed_by": "user_name",
-                "limits": [
-                    {
-                        "randomized_start": False,
-                        "interval": "15 minute",
-                        "tracking_only": True,
-                    },
-                ],
-                "apply_to": [],
-                "apply_to_mode": "all",
-            },
-        ),
-    ],
-)
-def test_parse_create_statement(mocker, create_statement, expected):
-    quota = ClickHouseQuota(mocker.MagicMock(), mocker.MagicMock(), "test_quota")
-    quota._exists = True
-    actual = quota._parse_create_statement(create_statement)
-    assert actual == (DEFAULT_PARSE_PARAMS | expected)
+def test_normalize_interval(quota, input, expected):
+    result = quota._normalize_interval(input)
+    assert result == expected
+    quota.module.fail_json.assert_not_called()
 
 
 @pytest.mark.parametrize(
@@ -286,14 +146,14 @@ def test_parse_create_statement(mocker, create_statement, expected):
             {
                 "limits": [
                     {
-                        "interval": "1 minute",
+                        "interval": 60,
                         "randomized_start": False,
                         "max": {},
                         "no_limits": None,
                         "tracking_only": None,
                     },
                     {
-                        "interval": "5 minute",
+                        "interval": 300,
                         "randomized_start": False,
                         "max": {},
                         "no_limits": None,
@@ -317,7 +177,7 @@ def test_parse_create_statement(mocker, create_statement, expected):
                 "limits": [
                     {
                         "randomized_start": False,
-                        "interval": "1 day",
+                        "interval": 86400,
                         "max": {
                             "queries": 10,
                             "query_selects": None,
@@ -352,7 +212,7 @@ def test_parse_create_statement(mocker, create_statement, expected):
                 "limits": [
                     {
                         "randomized_start": False,
-                        "interval": "1 day",
+                        "interval": 86400,
                         "max": {
                             "errors": 1,
                             "queries": None,
@@ -396,7 +256,7 @@ def test_parse_create_statement(mocker, create_statement, expected):
                 "limits": [
                     {
                         "randomized_start": False,
-                        "interval": "1 day",
+                        "interval": 86400,
                         "max": {},
                         "no_limits": None,
                         "tracking_only": True,
@@ -421,7 +281,7 @@ def test_parse_create_statement(mocker, create_statement, expected):
             {
                 "limits": [
                     {
-                        "interval": "15 minute",
+                        "interval": 900,
                         "max": {},
                         "no_limits": None,
                         "tracking_only": True,
@@ -432,206 +292,6 @@ def test_parse_create_statement(mocker, create_statement, expected):
         ),
     ],
 )
-def test_normalize(params, expected):
-    actual = ClickHouseQuota._normalize(params)
+def test_normalize(params, expected, quota):
+    actual = quota._normalize(params)
     assert actual == (DEFAULT_NORMALIZE_PARAMS | expected)
-
-
-DEFAULT_PARAMS = dict(
-    state="present",
-    cluster=None,
-    keyed_by=None,
-    limits=[],
-    apply_to_mode="listed_only",
-)
-
-
-@pytest.mark.parametrize(
-    argnames="name,params,existing_quota,expected_executed",
-    argvalues=[
-        # create queries
-        ("tést_quota", {}, None, ["CREATE QUOTA `tést_quota`"]),
-        ("tést_quota", {}, "CREATE QUOTA `tést_quota`", []),
-        (
-            "test_quota",
-            {
-                "cluster": "test_cluster",
-                "keyed_by": "user_name",
-                "limits": [
-                    {
-                        "interval": "5 minute",
-                        "max": {
-                            "queries": 100,
-                        },
-                    }
-                ],
-                "apply_to": ["CURRENT_USER"],
-            },
-            None,
-            [
-                "CREATE QUOTA `test_quota` ON CLUSTER `test_cluster` KEYED BY user_name FOR INTERVAL 5 minute MAX queries = 100 TO CURRENT_USER"
-            ],
-        ),
-        # drop queries
-        ("test_quota", dict(state="absent"), None, []),
-        (
-            "test_quota",
-            dict(state="absent"),
-            "CREATE QUOTA 'test_quota'",
-            ["DROP QUOTA `test_quota`"],
-        ),
-        # alter queries
-        (
-            "test_quota",
-            {
-                "cluster": "test_cluster",
-                "keyed_by": "user_name",
-                "limits": [
-                    {
-                        "interval": "5 minute",
-                        "max": {
-                            "queries": 100,
-                        },
-                    }
-                ],
-                "apply_to": ["CURRENT_USER"],
-            },
-            "CREATE QUOTA test_quota",
-            [
-                "ALTER QUOTA `test_quota` ON CLUSTER `test_cluster` KEYED BY user_name FOR INTERVAL 5 minute MAX queries = 100 TO CURRENT_USER"
-            ],
-        ),
-        (
-            "test_quota",
-            {
-                "limits": [
-                    {
-                        "interval": "5 minute",
-                        "max": {
-                            "queries": 100,
-                        },
-                    }
-                ],
-                "apply_to": ["test_user", "CURRENT_USER"],
-            },
-            "CREATE QUOTA test_quota FOR INTERVAL 5 minute MAX queries = 100 TO CURRENT_USER, test_user",
-            [],
-        ),
-        (
-            "tést quota",
-            {
-                "keyed_by": "client_key",
-                "limits": [
-                    {
-                        "randomized_start": True,
-                        "interval": "5 minute",
-                        "max": {
-                            "queries": 100,
-                            "execution_time": 1.1,
-                        },
-                    },
-                    {
-                        "interval": "1 minute",
-                        "max": {
-                            "errors": 10,
-                        },
-                    },
-                ],
-                "apply_to": ["default"],
-            },
-            "CREATE QUOTA `tést quota` KEYED BY client_key, user_name FOR INTERVAL 1 minute MAX errors = 10, "
-            "FOR RANDOMIZED INTERVAL 5 minute MAX queries = 100, execution_time = 1.1 TO default",
-            [
-                "ALTER QUOTA `tést quota` KEYED BY client_key FOR RANDOMIZED INTERVAL 5 minute MAX queries = 100, execution_time = 1.1, "
-                "FOR INTERVAL 1 minute MAX errors = 10 TO default"
-            ],
-        ),
-        (
-            "tést quota",
-            {
-                "keyed_by": "client_key,user_name",
-                "limits": [
-                    {
-                        "randomized_start": True,
-                        "interval": "5 minute",
-                        "max": {
-                            "queries": 100,
-                            "execution_time": 1.1,
-                        },
-                    },
-                    {
-                        "interval": "1 minute",
-                        "max": {
-                            "errors": 10,
-                        },
-                    },
-                ],
-                "apply_to": ["default"],
-            },
-            "CREATE QUOTA `tést quota` KEYED BY client_key, user_name FOR INTERVAL 1 minute MAX errors = 10, "
-            "FOR RANDOMIZED INTERVAL 5 minute MAX queries = 100, execution_time = 1.1 TO default",
-            [],
-        ),
-        (
-            "test_quota",
-            {
-                "keyed_by": "user_name",
-                "limits": [
-                    {
-                        "interval": "5 minute",
-                        "no_limits": True,
-                    },
-                ],
-            },
-            "CREATE QUOTA test_quota KEYED BY user_name",
-            [],
-        ),
-        (
-            "tracking_only",
-            {
-                "keyed_by": "user_name",
-                "limits": [
-                    {
-                        "interval": "15 minute",
-                        "tracking_only": True,
-                        "no_limits": None,
-                        "max": None,
-                    },
-                ],
-                "apply_to": [],
-                "apply_to_mode": "all",
-            },
-            "CREATE QUOTA tracking_only KEYED BY user_name FOR INTERVAL 15 minute TRACKING ONLY TO ALL",
-            [],
-        ),
-    ],
-)
-def test_ensure_state(mocker, name, params, existing_quota, expected_executed):
-    for check_mode in (True, False):
-        client = mocker.MagicMock()
-        client.execute.return_value = ["1"] if existing_quota else []
-        module = mocker.MagicMock()
-        module._verbosity = 1
-        module.check_mode = check_mode
-        module.params = DEFAULT_PARAMS | params
-        will_run_show_create = existing_quota and module.params["state"] == "present"
-        quota = ClickHouseQuota(module, client, name)
-        quota._exists = bool(existing_quota)
-        client.execute.return_value = [[existing_quota]] if will_run_show_create else []
-        executed_statements = []
-        mocker.patch("ansible_collections.community.clickhouse.plugins.modules.clickhouse_quota.executed_statements",
-                     executed_statements)
-        changed = quota.ensure_state()
-        if check_mode:
-            if will_run_show_create:
-                client.execute.assert_called_once_with(f"SHOW CREATE QUOTA `{name}`")
-            else:
-                client.execute.assert_not_called()
-        else:
-            expected_call_args_list = []
-            if will_run_show_create:
-                expected_call_args_list.append(((f"SHOW CREATE QUOTA `{name}`",),))
-            expected_call_args_list.extend(((sql,),) for sql in expected_executed)
-            assert client.execute.call_args_list == expected_call_args_list
-        assert executed_statements == expected_executed
-        assert changed is bool(expected_executed)
