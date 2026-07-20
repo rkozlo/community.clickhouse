@@ -47,7 +47,7 @@ def test_alter_role_one_setting_new_setting(role, mock_execute, mocker):
     changed = role.alter({'max_memory_usage': {'value': '10G'}}, [], None)
     actual_query = get_executed_query(mock_execute)
     assert changed is True
-    assert actual_query == "ALTER ROLE `test_role` SETTINGS max_memory_usage='10G'"
+    assert actual_query == "ALTER ROLE `test_role` SETTINGS max_memory_usage='10000000000'"
 
 
 def test_alter_role_one_profile_new_setting(role, mock_execute):
@@ -61,7 +61,7 @@ def test_alter_role_one_profile_one_setting_new_setting(role, mock_execute):
     changed = role.alter({'max_memory_usage': {'value': '10G'}}, ['web'], None)
     actual_query = get_executed_query(mock_execute)
     assert changed is True
-    assert actual_query == "ALTER ROLE `test_role` SETTINGS PROFILE 'web', max_memory_usage='10G'"
+    assert actual_query == "ALTER ROLE `test_role` SETTINGS PROFILE 'web', max_memory_usage='10000000000'"
 
 
 def test_drop(role, mock_execute):
@@ -102,4 +102,4 @@ def test_alter_role_add_settings_del_profile(role, mock_execute, mocker):
     changed = role.alter({'max_memory_usage': {'value': '10G'}}, [], None)
     actual_query = get_executed_query(mock_execute)
     assert changed is True
-    assert actual_query == "ALTER ROLE `test_role` SETTINGS max_memory_usage='10G'"
+    assert actual_query == "ALTER ROLE `test_role` SETTINGS max_memory_usage='10000000000'"

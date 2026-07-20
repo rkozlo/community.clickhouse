@@ -11,7 +11,8 @@ from ansible_collections.community.clickhouse.plugins.module_utils.clickhouse im
     client_common_argument_spec,
     get_main_conn_kwargs,
     validate_identifier,
-    normalize_db_table
+    normalize_db_table,
+    to_bytes_data,
 )
 
 REASON = "The clickhouse_driver module is not installed"
@@ -186,3 +187,26 @@ def test_validate_identifier_with_custom_context(mocker):
     mock_module.fail_json.assert_called_once()
     call_msg = mock_module.fail_json.call_args[1]['msg']
     assert "Invalid cluster name" in call_msg
+
+
+@pytest.mark.parametrize("value,expected", [
+    ("1K", 1000),
+    ("128K", 128000),
+    ("1M", 1000000),
+    ("16M", 16000000),
+    ("1G", 1000000000),
+    ("31G", 31000000000),
+    ("1T", 1000000000000),
+    ("2T", 2000000000000),
+    ("1Ki", 1024),
+    ("128Ki", 131072),
+    ("1Mi", 1048576),
+    ("16Mi", 16777216),
+    ("1Gi", 1073741824),
+    ("31Gi", 33285996544),
+    ("1Ti", 1099511627776),
+    ("2Ti", 2199023255552),
+])
+def test_normalize_data_values(value, expected):
+    result = to_bytes_data(value)
+    assert result == expected
