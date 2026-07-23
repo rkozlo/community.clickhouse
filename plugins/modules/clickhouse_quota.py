@@ -266,6 +266,7 @@ class ClickHouseQuota:
         self.keyed_by = None
         self.durations = None
         self.apply_to_all = None
+        self.apply_to_list = None
         self.apply_to_except = None
 
         self._exists = None
