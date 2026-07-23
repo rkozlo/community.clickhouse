@@ -719,3 +719,73 @@
   ansible.builtin.assert:
     that:
     - result.result == []
+
+- name: Create quota with factional interval - 1
+  community.clickhouse.clickhouse_quota:
+    name: test_quota
+    limits:
+      - interval: 1.5 year
+        tracking_only: true
+    apply_to_mode: all
+
+- name: Check the quota was interval value
+  register: result
+  community.clickhouse.clickhouse_client:
+    execute: "SELECT duration FROM system.quota_limits WHERE quota_name = 'test_quota'"
+
+- name: Verify quota duration
+  ansible.builtin.assert:
+    that:
+    - result.result == [[47335428]]
+
+- name: Create quota with factional interval - 1 - idempotency
+  community.clickhouse.clickhouse_quota:
+    name: test_quota
+    limits:
+      - interval: 1.5 year
+        tracking_only: true
+    apply_to_mode: all
+  register: result
+
+- name: Check the return values
+  ansible.builtin.assert:
+    that:
+    - result is not changed
+
+- name: Drop quota
+  community.clickhouse.clickhouse_quota:
+    name: test_quota
+    state: absent
+
+- name: Create quota with factional interval - 2
+  community.clickhouse.clickhouse_quota:
+    name: test_quota
+    limits:
+      - interval: 0.1 day
+        tracking_only: true
+    apply_to_mode: all
+  register: result
+
+- name: Check the quota was interval value
+  register: result
+  community.clickhouse.clickhouse_client:
+    execute: "SELECT duration FROM system.quota_limits WHERE quota_name = 'test_quota'"
+
+- name: Verify quota duration
+  ansible.builtin.assert:
+    that:
+    - result.result == [[8640]]
+
+- name: Create quota with factional interval - 2 - idempotency
+  community.clickhouse.clickhouse_quota:
+    name: test_quota
+    limits:
+      - interval: 0.1 day
+        tracking_only: true
+    apply_to_mode: all
+  register: result
+
+- name: Drop quota
+  community.clickhouse.clickhouse_quota:
+    name: test_quota
+    state: absent

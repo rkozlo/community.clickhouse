@@ -221,7 +221,7 @@ _MAX_LIMIT_TYPES = [
     "failed_sequential_authentications",
 ]
 
-_LIMITS_INTERVAL = re.compile(r'^(?P<number>[\d]+) (?P<unit>second|minute|hour|day|week|month|quarter|year)$', re.IGNORECASE)
+_LIMITS_INTERVAL = re.compile(r'^(?P<number>[\d]+(\.[\d]+)?) (?P<unit>second|minute|hour|day|week|month|quarter|year)$', re.IGNORECASE)
 
 _DEFAULT_LIMIT_PARAMS = {
     "randomized_start": False,
@@ -378,7 +378,8 @@ class ClickHouseQuota:
         match = _LIMITS_INTERVAL.match(input)
         if not match:
             self.module.fail_json(msg=f"Unexpected interval input {input}.")
-        return int(match.group('number')) * int(_INTERVAL_CONV[match.group('unit').lower()])
+        # Input interval can be fractional. The result clickhouse
+        return int(float(match.group('number')) * int(_INTERVAL_CONV[match.group('unit').lower()]))
 
     def _needs_altering(self):
         """Check if we need to alter to reach desired"""

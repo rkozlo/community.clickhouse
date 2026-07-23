@@ -110,16 +110,22 @@ def test_properties_loading_check_quota_limits(quota, mocker):
 @pytest.mark.parametrize(
     'input,expected',
     [
+        ("0 second", 0),
         ("1 second", 1),
         ("1 SECOND", 1),
         ("2 second", 2),
+        ("2.3 second", 2),
+        ("2.6 second", 2),
         ("1 minute", 60),
+        ("1.5 minute", 90),
         ("2 minute", 120),
         ("2 hour", 7200),
+        ("0.1 day", 8640),
         ("2 day", 172800),
         ("2 week", 1209600),
         ("2 month", 5259492),
         ("2 quarter", 15778476),
+        ("1.5 year", 47335428),
         ("2 year", 63113904),
     ]
 )
