@@ -363,7 +363,7 @@ class ClickHouseQuota:
         result["limits"].sort(key=itemgetter("interval"))
         return result
 
-    def _normalize_interval(self, input):
+    def _normalize_interval(self, interval):
         '''Normalize passed interval into seconds.'''
         _INTERVAL_CONV = {
             "second": 1,
@@ -375,9 +375,9 @@ class ClickHouseQuota:
             "quarter": 7889238,
             "year": 31556952,
         }
-        match = _LIMITS_INTERVAL.match(input)
+        match = _LIMITS_INTERVAL.match(interval)
         if not match:
-            self.module.fail_json(msg=f"Unexpected interval input {input}.")
+            self.module.fail_json(msg=f"Unexpected interval input {interval}.")
         # Input interval can be fractional. The result clickhouse
         return int(float(match.group('number')) * int(_INTERVAL_CONV[match.group('unit').lower()]))
 
