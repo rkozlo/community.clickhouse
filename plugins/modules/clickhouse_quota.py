@@ -186,6 +186,7 @@ RETURN = r"""
 executed_statements:
   description:
   - Data-modifying executed statements.
+  - Interval will be converted and passed to database in seconds.
   returned: on success
   type: list
   sample: ['CREATE QUOTA test_quota']
