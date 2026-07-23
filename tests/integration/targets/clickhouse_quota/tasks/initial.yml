@@ -785,6 +785,39 @@
     apply_to_mode: all
   register: result
 
+- name: Check the return values
+  ansible.builtin.assert:
+    that:
+    - result is not changed
+
+- name: Create quota with test case sensitivity
+  community.clickhouse.clickhouse_quota:
+    name: test_quota
+    limits:
+      - interval: 0.1 DAY
+        tracking_only: true
+    apply_to_mode: all
+  register: result
+
+- name: Check the return values
+  ansible.builtin.assert:
+    that:
+    - result is not changed
+
+- name: Create quota with test case sensitivity - 2
+  community.clickhouse.clickhouse_quota:
+    name: test_quota
+    limits:
+      - interval: 0.1 Day
+        tracking_only: true
+    apply_to_mode: all
+  register: result
+
+- name: Check the return values
+  ansible.builtin.assert:
+    that:
+    - result is not changed
+
 - name: Drop quota
   community.clickhouse.clickhouse_quota:
     name: test_quota
