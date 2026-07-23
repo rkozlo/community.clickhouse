@@ -111,6 +111,7 @@ def test_properties_loading_check_quota_limits(quota, mocker):
     'input,expected',
     [
         ("1 second", 1),
+        ("1 SECOND", 1),
         ("2 second", 2),
         ("1 minute", 60),
         ("2 minute", 120),
