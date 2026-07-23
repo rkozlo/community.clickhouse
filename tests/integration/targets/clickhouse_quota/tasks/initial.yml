@@ -4,7 +4,7 @@
 #####################################################################
 
 # Basic creation in check mode
-- name: Create a test quota in check mode
+- name: Create a no limits test quota in check mode
   register: result
   check_mode: true
   community.clickhouse.clickhouse_quota:
@@ -26,6 +26,46 @@
   ansible.builtin.assert:
     that:
     - result.result == []
+
+- name: Create a no limits test quota in real mode
+  register: result
+  community.clickhouse.clickhouse_quota:
+    state: present
+    name: test_quota
+
+- name: Check the return values
+  ansible.builtin.assert:
+    that:
+    - result is changed
+    - result.executed_statements == ['CREATE QUOTA `test_quota`']
+
+- name: Check the quota was created in check mode
+  register: result
+  community.clickhouse.clickhouse_client:
+    execute: "SELECT 1 FROM system.quotas WHERE name = 'test_quota'"
+
+- name: Verify that the quota is present
+  ansible.builtin.assert:
+    that:
+    - result.result == [[1]]
+
+- name: Alter a no limits test quota adding keyed by in real mode
+  register: result
+  community.clickhouse.clickhouse_quota:
+    state: present
+    name: test_quota
+    keyed_by: user_name
+
+- name: Check the return values
+  ansible.builtin.assert:
+    that:
+    - result is changed
+    - result.executed_statements == ['ALTER QUOTA `test_quota` KEYED BY user_name']
+
+- name: Drop test quota
+  community.clickhouse.clickhouse_quota:
+    state: absent
+    name: test_quota
 
 # Basic creation with limits in check mode
 - name: Create a test quota in check mode
