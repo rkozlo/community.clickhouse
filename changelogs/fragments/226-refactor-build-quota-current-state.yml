@@ -1,2 +1,4 @@
 minor_changes:
-  - clickhouse_quota - refactor fetching current state of existing quota. Move fully to system tables instead of parsing create query. Fix interval idempotency. Since now interval units will be converted to seconds before executing query. (https://github.com/ansible-collections/community.clickhouse/issues/226)
+  - clickhouse_quota - refactor fetching current state of existing quota. Move fully to system tables instead of parsing create query.
+bugfixes:
+  - clickhouse_quota - fix interval idempotency. Since now interval units will be converted to seconds before executing query. (https://github.com/ansible-collections/community.clickhouse/issues/226)
