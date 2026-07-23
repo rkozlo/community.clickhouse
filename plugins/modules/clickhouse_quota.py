@@ -361,8 +361,6 @@ class ClickHouseQuota:
             result["apply_to_mode"] = "listed_only"
             result["apply_to"] = list(self.apply_to_list or [])
 
-        # keep same ordering as normalize expects
-        result["limits"].sort(key=itemgetter("interval"))
         return result
 
     def _normalize_interval(self, interval):
