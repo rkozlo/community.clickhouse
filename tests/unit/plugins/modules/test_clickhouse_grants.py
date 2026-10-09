@@ -870,19 +870,19 @@ class TestClickHouseGrantsPartialRevokes:
         grants = [
             {'access_type': 'READ', 'column': None, 'is_partial_revoke': 0},
         ]
-        assert self.obj._privilege_covered(grants, 'READ', [], 0, False) is True
+        assert self.obj._privilege_covered(grants, 'READ', [], 0, False, False) is True
 
     def test_privilege_covered_table_grant_with_unrestricted_row_covers_all_columns(self):
         grants = [
             {'access_type': 'SELECT', 'column': None, 'is_partial_revoke': 0},
         ]
-        assert self.obj._privilege_covered(grants, 'SELECT', ['name'], 0, True) is True
+        assert self.obj._privilege_covered(grants, 'SELECT', ['name'], 0, True, False) is True
 
     def test_privilege_covered_rejects_all_grant_for_partial_revoke(self):
         grants = [
             {'access_type': 'ALL', 'column': None, 'is_partial_revoke': 0},
         ]
-        assert self.obj._privilege_covered(grants, 'SELECT', [], 1, True) is False
+        assert self.obj._privilege_covered(grants, 'SELECT', [], 1, True, False) is False
 
     @pytest.mark.parametrize(
         'obj,expected',
@@ -894,8 +894,9 @@ class TestClickHouseGrantsPartialRevokes:
             ('*', '*'),
         ]
     )
-    def test_normalize_revoke_object(self, obj, expected):
-        assert self.obj._normalize_revoke_object(obj) == expected
+    def test_normalize_table_object(self, obj, expected):
+        assert self.obj._normalize_table_object(obj) == expected
+
 
     @pytest.mark.parametrize(
         'stmt,obj,cols,grant_option,expected',
@@ -920,8 +921,9 @@ class TestClickHouseGrantsPartialRevokes:
         self.obj._grant_query('SELECT', 'foo.bar', ['a`b'])
         self.mock_module.fail_json.assert_called_once()
 
-    def test_normalize_revoke_object_rejects_partial_wildcard_db(self):
-        self.obj._normalize_revoke_object('*.bar')
+
+    def test_normalize_table_object_rejects_partial_wildcard_db(self):
+        self.obj._normalize_table_object('*.bar')
         self.mock_module.fail_json.assert_called_once()
         assert "'*.*'" in self.mock_module.fail_json.call_args.kwargs['msg']
 
@@ -1006,7 +1008,7 @@ class TestClickHouseGrantsUpdateRevokes:
 
         assert changed is True
         assert executed_statements == [
-            "GRANT SELECT ON foo.* TO 'alice'",
+            "GRANT SELECT ON `foo`.* TO 'alice'",
             "REVOKE SELECT ON `foo`.`bar` FROM 'alice'",
         ]
 
@@ -1026,7 +1028,7 @@ class TestClickHouseGrantsUpdateRevokes:
 
         assert changed is True
         assert executed_statements == [
-            "GRANT SELECT ON foo.* TO 'alice'",
+            "GRANT SELECT ON `foo`.* TO 'alice'",
             "REVOKE SELECT(`a`) ON `foo`.`bar` FROM 'alice'",
         ]
 
@@ -1194,3 +1196,37 @@ class TestClickHouseGrantsLiftPartialRevokes:
 
         self.mock_module.fail_json.assert_called_once()
         assert '25.8' in self.mock_module.fail_json.call_args.kwargs['msg']
+
+
+class TestClickHouseAttachNewFormat:
+    """Test the helpers backing the revokes option"""
+
+    def setup_method(self):
+        self.mock_module = MagicMock()
+        self.mock_client = MagicMock()
+        patcher = patch('ansible_collections.community.clickhouse.plugins.modules.'
+                        'clickhouse_grants.execute_query')
+        self.mock_execute_query = patcher.start()
+        # Let __check_grantee_exists find the grantee
+        self.mock_execute_query.return_value = [(1,)]
+        self.obj = ClickHouseGrants(module=self.mock_module, client=self.mock_client, grantee="test")
+        self.obj._grants = [
+            {'access_type': 'SELECT', 'access_object': '', 'database': 'foo', 'table': None,
+             'column': None, 'is_partial_revoke': 0, 'grant_option': 0}
+        ]
+    def teardown_method(self):
+        patch.stopall()
+
+    def test_simple(self):
+        self.obj.module.params = {
+            'privileges': [ {
+                'object': 'foo2.*',
+                'privs': {
+                'SELECT': False,
+                }
+            }
+            ],
+        }
+        result = self.obj.attach_new_format()
+        assert result == [('SELECT', 'foo2.*', False)]
+        # assert result == []
