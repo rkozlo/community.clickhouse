@@ -415,7 +415,7 @@ class ClickHouseGrants():
 
         return rows
 
-    def _normalize_revoke_object(self, obj):
+    def _normalize_table_object(self, obj):
         """Turn an object passed by the user into a quoted statement part.
 
         Quoting is what makes the value safe to interpolate, as
@@ -495,7 +495,7 @@ class ClickHouseGrants():
 
         return current + pending_grants
 
-    def _privilege_fully_present(self, obj, privs, revoke=0, extra_grants=None):
+    def _privilege_fully_present(self, obj, privs, revoke=0, extra_grants=None, grant_option=False):
         """
         Check whether privileges described by `privs` on `obj` are already
         represented in current grants.
@@ -528,6 +528,7 @@ class ClickHouseGrants():
                 cols,
                 requested_partial_flag,
                 is_table_object,
+                grant_option,
             ):
                 return False
 
@@ -604,6 +605,7 @@ class ClickHouseGrants():
         cols,
         partial_revoke,
         is_table_object,
+        grant_option,
     ):
         """Return True if grants fully cover the requested privilege."""
         stmt = stmt.upper()
@@ -625,6 +627,9 @@ class ClickHouseGrants():
             if grant_partial_flag != partial_revoke:
                 continue
 
+            if grant.get(grant_option, False) != grant_option:
+                return False
+
             if not is_table_object:
                 return True
 
@@ -640,6 +645,33 @@ class ClickHouseGrants():
             return False
 
         return required_cols.issubset(covered_cols)
+
+    def attach_new_format(self):
+        desired = self._get_desired_grants()
+        all_desired_privs_formated = [(self._parse_priv_entries(priv), obj, go)
+                    for obj, privs in desired.items()
+                    for priv, go in privs.items()]
+        to_do = []
+        for priv in all_desired_privs_formated:
+            stmts = priv[0]
+            obj = priv[1]
+            grant_option = priv[2]
+            if not self._privilege_fully_present(obj, stmts, 0, None, grant_option):
+                formated_priv = (', '.join(self.create_stmt_with_cols(stmts)), obj, grant_option)
+                to_do.append(formated_priv)
+        return to_do
+
+    def create_stmt_with_cols(self, priv):
+        '''Return String formated stmt like ['SELECT', 'INSERT(a)'].'''
+        stmts = []
+        for st, cols in priv.items():
+            stmt = st
+            if cols:
+                stmt += '('
+                stmt += ', '.join(cols)
+                stmt += ')'
+            stmts.append(stmt)
+        return stmts
 
     def update(self):
         desired = self._get_desired_grants()
@@ -657,8 +689,8 @@ class ClickHouseGrants():
                              for priv, go in privs.items()}
 
         to_revoke = all_current_privs - all_desired_privs if exclusive else set()
-        to_grant = all_desired_privs - all_current_privs
-
+        # to_grant = all_desired_privs - all_current_privs
+        to_grant = self.attach_new_format()
         if not to_revoke and not to_grant and not partial_revokes:
             return self.changed
 
@@ -673,26 +705,31 @@ class ClickHouseGrants():
             query += get_on_cluster_clause(self.module, self.cluster)
             queries.append(query)
 
-        grants_go_by_obj = defaultdict(list)
-        grants_no_go_by_obj = defaultdict(list)
+        # grants_go_by_obj = defaultdict(list)
+        # grants_no_go_by_obj = defaultdict(list)
 
-        for priv, obj, go in to_grant:
+        # for priv, obj, go in to_grant:
+        #     if go:
+        #         grants_go_by_obj[obj].append(priv)
+        #     else:
+        #         grants_no_go_by_obj[obj].append(priv)
+        for privs, obj, go in to_grant:
+            query = "GRANT {0} ON {1} TO '{2}'".format(privs, self._normalize_table_object(obj), self.grantee)
             if go:
-                grants_go_by_obj[obj].append(priv)
-            else:
-                grants_no_go_by_obj[obj].append(priv)
-
-        for obj, privs in grants_go_by_obj.items():
-            privs_str = ', '.join(sorted(privs))
-            query = "GRANT {0} ON {1} TO '{2}' WITH GRANT OPTION".format(privs_str, obj, self.grantee)
+                query += ' WITH GRANT OPTION'
             query += get_on_cluster_clause(self.module, self.cluster)
             queries.append(query)
+        # for obj, privs in grants_go_by_obj.items():
+        #     privs_str = ', '.join(sorted(privs))
+        #     query = "GRANT {0} ON {1} TO '{2}' WITH GRANT OPTION".format(privs_str, obj, self.grantee)
+        #     query += get_on_cluster_clause(self.module, self.cluster)
+        #     queries.append(query)
 
-        for obj, privs in grants_no_go_by_obj.items():
-            privs_str = ', '.join(sorted(privs))
-            query = "GRANT {0} ON {1} TO '{2}'".format(privs_str, obj, self.grantee)
-            query += get_on_cluster_clause(self.module, self.cluster)
-            queries.append(query)
+        # for obj, privs in grants_no_go_by_obj.items():
+        #     privs_str = ', '.join(sorted(privs))
+        #     query = "GRANT {0} ON {1} TO '{2}'".format(privs_str, obj, self.grantee)
+        #     query += get_on_cluster_clause(self.module, self.cluster)
+        #     queries.append(query)
 
         # Handle partial revokes if specified
         if partial_revokes:
@@ -737,7 +774,7 @@ class ClickHouseGrants():
                     else:
                         stmts.append(key)
                 query = "REVOKE {0} ON {1} FROM '{2}'".format(
-                    ', '.join(stmts), self._normalize_revoke_object(revoke_obj), self.grantee)
+                    ', '.join(stmts), self._normalize_table_object(revoke_obj), self.grantee)
                 query += get_on_cluster_clause(self.module, self.cluster)
                 queries.append(query)
 

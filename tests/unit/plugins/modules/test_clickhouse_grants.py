@@ -719,19 +719,19 @@ class TestClickHouseGrantsPartialRevokes:
         grants = [
             {'access_type': 'READ', 'column': None, 'is_partial_revoke': 0},
         ]
-        assert self.obj._privilege_covered(grants, 'READ', [], 0, False) is True
+        assert self.obj._privilege_covered(grants, 'READ', [], 0, False, False) is True
 
     def test_privilege_covered_table_grant_with_unrestricted_row_covers_all_columns(self):
         grants = [
             {'access_type': 'SELECT', 'column': None, 'is_partial_revoke': 0},
         ]
-        assert self.obj._privilege_covered(grants, 'SELECT', ['name'], 0, True) is True
+        assert self.obj._privilege_covered(grants, 'SELECT', ['name'], 0, True, False) is True
 
     def test_privilege_covered_rejects_all_grant_for_partial_revoke(self):
         grants = [
             {'access_type': 'ALL', 'column': None, 'is_partial_revoke': 0},
         ]
-        assert self.obj._privilege_covered(grants, 'SELECT', [], 1, True) is False
+        assert self.obj._privilege_covered(grants, 'SELECT', [], 1, True, False) is False
 
     @pytest.mark.parametrize(
         'obj,expected',
@@ -743,11 +743,11 @@ class TestClickHouseGrantsPartialRevokes:
             ('*', '*'),
         ]
     )
-    def test_normalize_revoke_object(self, obj, expected):
-        assert self.obj._normalize_revoke_object(obj) == expected
+    def test_normalize_table_object(self, obj, expected):
+        assert self.obj._normalize_table_object(obj) == expected
 
-    def test_normalize_revoke_object_rejects_partial_wildcard_db(self):
-        self.obj._normalize_revoke_object('*.bar')
+    def test_normalize_table_object_rejects_partial_wildcard_db(self):
+        self.obj._normalize_table_object('*.bar')
         self.mock_module.fail_json.assert_called_once()
         assert "'*.*'" in self.mock_module.fail_json.call_args.kwargs['msg']
 
@@ -832,7 +832,7 @@ class TestClickHouseGrantsUpdateRevokes:
 
         assert changed is True
         assert executed_statements == [
-            "GRANT SELECT ON foo.* TO 'alice'",
+            "GRANT SELECT ON `foo`.* TO 'alice'",
             "REVOKE SELECT ON `foo`.`bar` FROM 'alice'",
         ]
 
@@ -852,9 +852,24 @@ class TestClickHouseGrantsUpdateRevokes:
 
         assert changed is True
         assert executed_statements == [
-            "GRANT SELECT ON foo.* TO 'alice'",
+            "GRANT SELECT ON `foo`.* TO 'alice'",
             "REVOKE SELECT(`a`) ON `foo`.`bar` FROM 'alice'",
         ]
+
+    def test_grant_priv_as_existing_partial_revoke(self):
+        self.mock_module.params['privileges'] = [{'object': 'foo.bar', 'privs': {'SELECT': False}}]
+        self.mock_execute_query.return_value = [('GRANT SELECT ON foo.* TO alice','REVOKE SELECT ON foo.bar FROM alice',),]
+        self.obj._grants = [
+            {'access_type': 'SELECT', 'access_object': '', 'database': 'foo', 'table': None,
+             'column': None, 'is_partial_revoke': 0, 'grant_option': 0},
+            {'access_type': 'SELECT', 'access_object': '', 'database': 'foo', 'table': 'bar',
+             'column': None, 'is_partial_revoke': 1, 'grant_option': 0},
+        ]
+
+        changed = self.obj.update()
+
+        assert changed is True
+        assert executed_statements == []
 
     def test_no_statement_when_revoke_already_in_place(self):
         self.mock_module.params['partial_revokes'] = [{'object': 'foo.bar', 'privs': ['SELECT']}]
@@ -898,3 +913,36 @@ class TestClickHouseGrantsUpdateRevokes:
         assert executed_statements == ["REVOKE SELECT ON `foo`.`bar` FROM 'alice'"]
         # Only the SHOW GRANTS lookup, never the REVOKE
         assert self.mock_execute_query.call_count == 1
+
+class TestClickHouseAttachNewFormat:
+    """Test the helpers backing the revokes option"""
+
+    def setup_method(self):
+        self.mock_module = MagicMock()
+        self.mock_client = MagicMock()
+        patcher = patch('ansible_collections.community.clickhouse.plugins.modules.'
+                        'clickhouse_grants.execute_query')
+        self.mock_execute_query = patcher.start()
+        # Let __check_grantee_exists find the grantee
+        self.mock_execute_query.return_value = [(1,)]
+        self.obj = ClickHouseGrants(module=self.mock_module, client=self.mock_client, grantee="test")
+        self.obj._grants = [
+            {'access_type': 'SELECT', 'access_object': '', 'database': 'foo', 'table': None,
+             'column': None, 'is_partial_revoke': 0, 'grant_option': 0}
+        ]
+    def teardown_method(self):
+        patch.stopall()
+
+    def test_simple(self):
+        self.obj.module.params = {
+            'privileges': [ {
+                'object': 'foo2.*',
+                'privs': {
+                'SELECT': False,
+                }
+            }
+            ],
+        }
+        result = self.obj.attach_new_format()
+        assert result == [('SELECT', 'foo2.*', False)]
+        # assert result == []
